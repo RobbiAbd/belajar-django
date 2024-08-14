@@ -1,0 +1,17 @@
+version: "3.9"
+services:
+  web:
+    image: belajar_python:v1.0
+    container_name: belajar_python_1.0
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    networks:
+      - internal-network
+
+networks:
+  internal-network:
+    driver: bridge
