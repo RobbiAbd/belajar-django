@@ -1,13 +1,5 @@
 from django.db import models
-
-class FavoriteFoods(models.Model):
-    category_id = models.AutoField(primary_key=True)
-    category_name = models.CharField(max_length=100, null=True, blank=True)
-    is_deleted = models.BooleanField(null=True, blank=True)
-    created_by = models.CharField(max_length=255, null=True, blank=True)
-    created_time = models.DateTimeField(null=True, blank=True)
-    modified_by = models.CharField(max_length=255, null=True, blank=True)
-    modified_time = models.DateTimeField(null=True, blank=True)
+from django.contrib.auth.hashers import make_password
 
 class HowToCook(models.Model):
     how_to_cook_id = models.BigAutoField(primary_key=True)
@@ -52,7 +44,7 @@ class Role(models.Model):
         return self.role_name
     
 class User(models.Model):
-    user_id = models.AutoField(primary_key=True)
+    id = models.AutoField(primary_key=True)
     username = models.CharField(max_length=255, null=True, blank=True)
     fullname = models.CharField(max_length=255, null=True, blank=True)
     password = models.TextField(null=True, blank=True)
@@ -63,10 +55,18 @@ class User(models.Model):
     modified_by = models.CharField(max_length=255, null=True, blank=True)
     modified_time = models.DateTimeField(null=True, blank=True)
     role_id = models.ForeignKey(Role, on_delete=models.RESTRICT, null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        if self.pk is None:
+            self.password = make_password(self.password)
+        super(User, self).save(*args, **kwargs)
+
+    def str(self):
+        return self.username
     
 class Recipes(models.Model):
     recipe_id = models.AutoField(primary_key=True)
-    user = models.ForeignKey(User, on_delete=models.RESTRICT, null=True, blank=True)
+    user = models.ForeignKey(User, on_delete=models.RESTRICT)
     category = models.ForeignKey(Category, on_delete=models.RESTRICT, null=True, blank=True)
     level = models.ForeignKey(Level, on_delete=models.RESTRICT, null=True, blank=True)
     recipe_name = models.CharField(max_length=255, null=True, blank=True)
@@ -93,3 +93,12 @@ class RecipeHowToCook(models.Model):
 class RecipeIngredient(models.Model):
     ingridient = models.ForeignKey(Ingredient, on_delete=models.CASCADE)
     recipe = models.ForeignKey(Recipes, on_delete=models.CASCADE)
+
+class FavoriteFoods(models.Model):
+    user = models.ForeignKey(User, on_delete=models.RESTRICT, null=True, blank=True)
+    recipe = models.ForeignKey(Recipes, on_delete=models.RESTRICT, null=True, blank=True)
+    is_favorite = models.BooleanField(null=True, blank=True)
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    created_time = models.DateTimeField(null=True, blank=True)
+    modified_by = models.CharField(max_length=255, null=True, blank=True)
+    modified_time = models.DateTimeField(null=True, blank=True)
