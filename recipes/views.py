@@ -15,47 +15,65 @@ logger = logging.getLogger(__name__)
 # Create your views here.        
 class RecipeListCreate(generics.ListCreateAPIView) :
     permission_classes = [IsAuthenticated]
-    queryset = Recipes.objects.filter(is_deleted = False)
     serializer_class = RecipeSerializer
     pagination_class = CustomPagination
 
-    def get(self, request):
-        try :
-            ordering_params = self.request.GET
-            filter_field = {}
-            ordering_field = []
+    def get_queryset(self):
+        user_id = self.request.query_params.get('userId', None)
+        category_id = self.request.query_params.get('categoryId', None)
+        recipe_name = self.request.query_params.get('recipeName', None)
+        level_id = self.request.query_params.get('levelId', None)
+        sort_by = self.request.query_params.get('sortBy', None)
+        time_range = self.request.query_params.get('time', None)
 
-            queryset = self.filter_queryset(self.get_queryset())
-            
-            if ordering_params :
-                for field, value in ordering_params.items() :
-                    filter_params = value.split(',') 
+        queryset = Recipes.objects.filter(is_deleted=False)
 
-                    if len(filter_params) < 2:
-                        continue
+        ordering_mapping = {
+            'recipeName': 'recipe_name',
+            'timeCook': 'time_cook',
+        }
 
-                    filter_search = filter_params[0].strip()
-                    filter_direction = filter_params[1].strip()
+        if recipe_name :
+            queryset = queryset.filter(recipe_name__icontains=recipe_name)
 
-                    if filter_search :
-                        filter_field[field] = filter_search
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
 
-                    if filter_direction :
-                        if filter_direction == 'asc' :
-                            ordering_field.append(field)
-                        elif filter_direction == 'desc' :
-                            ordering_field.append(f'-{field}')
-                        
-            if ordering_field :
-                queryset = queryset.order_by(*ordering_field)
-            else :
+        if category_id:
+            queryset = queryset.filter(category_id=category_id)
+
+        if level_id:
+            queryset = queryset.filter(level_id=level_id)
+
+        if sort_by:
+            sort_field, sort_order = sort_by.split(',')
+            sort_field = ordering_mapping.get(sort_field, sort_field)
+
+            if sort_order == 'desc':
+                sort_field = f'-{sort_field}'
+                queryset = queryset.order_by(sort_field)
+            else:
                 queryset = queryset.order_by('recipe_name')
 
-            if filter_field :
-                for field, value in filter_field.items() :
-                    field_contain = f'{field}__icontains'
-                    queryset = queryset.filter(**{field_contain: value})
+        if time_range:
+            try:
+                if '-' in time_range:
+                    time_min, time_max = map(int, time_range.split('-'))
+                    queryset = queryset.filter(time__gte=time_min, time__lte=time_max)
+                else:
+                    time_value = int(time_range)
+                    if time_value == 60:
+                        queryset = queryset.filter(time__gte=60)
+                    else:
+                        queryset = queryset.filter(time=time_value)
+            except ValueError:
+                raise ValueError("time range invalid")
+        
+        return queryset
 
+    def get(self, request):
+        try :                        
+            queryset = self.get_queryset()
             page = self.paginate_queryset(queryset)
             if page is not None:
                 serializer = self.get_serializer(page, many=True)
@@ -66,9 +84,8 @@ class RecipeListCreate(generics.ListCreateAPIView) :
                 data = serializer.data
 
             payload = {
-                'total_data': self.queryset.count(),
                 'statusCode': status.HTTP_200_OK,
-                'status': 'Success',
+                'status': 'OK',
                 'message': 'Success',
                 'data': data
             }
@@ -78,7 +95,7 @@ class RecipeListCreate(generics.ListCreateAPIView) :
         except Exception as e :
             logger.info(f"An error occurred while creating the product: ${str(e)}")
             return Response({
-                "status": "error",
+                "status": "ERROR",
                 "message": "An error occurred while creating the product",
                 "errors": str(e),
                 "statusCode": status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -103,21 +120,21 @@ class RecipeListCreate(generics.ListCreateAPIView) :
                 serializer.save(user=user)
 
                 return Response({
-                    "status": "Success",
+                    "status": "OK",
                     "message": "Resep Makanan Berhasil disimpan",
                     "statusCode": status.HTTP_201_CREATED
                 }, status=status.HTTP_201_CREATED)
             else :
 
                 return Response({
-                    "status": "Failed",
+                    "status": "ERROR",
                     "message": "Data Resep Makanan tidak berhasil disimpan",
                     "statusCode": status.HTTP_400_BAD_REQUEST
                 }, status=status.HTTP_400_BAD_REQUEST)        
         except Exception as e:            
 
             return Response({
-                "status": "error",
+                "status": "ERROR",
                 "message": "An error occurred while creating the product",
                 "errors": str(e),
                 "statusCode": status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -129,20 +146,20 @@ class RecipeToggleFavorite(generics.RetrieveDestroyAPIView):
 
     def put(self, request, *args, **kwargs):
         try :
-            if not request.data.get('user_id') :
+            if not request.data.get('userId') :
                 return Response({
-                    "status": "Failed",
-                    "message": "Data Resep Makanan tidak berhasil disimpan",
+                    "status": "ERROR",
+                    "message": "UserId tidak ditemukan",
                     "statusCode": status.HTTP_400_BAD_REQUEST
                 }, status=status.HTTP_400_BAD_REQUEST)    
 
-            recipe_id = kwargs.get('recipe_id')
-            user_id = request.data.get('user_id')
+            recipe_id = int(kwargs.get('recipe_id'))
+            user_id = int(request.data.get('userId'))
             recipe = Recipes.objects.get(recipe_id=recipe_id)
             
             if not recipe :
                 return Response({
-                    "status": "Error",
+                    "status": "ERROR",
                     "message": "Recipe not found.",
                     "statusCode": status.HTTP_404_NOT_FOUND
                 }, status=status.HTTP_404_NOT_FOUND)
@@ -150,7 +167,7 @@ class RecipeToggleFavorite(generics.RetrieveDestroyAPIView):
             user = User.objects.get(id=user_id)
             if not user :
                 return Response({
-                    "status": "Error",
+                    "status": "ERROR",
                     "message": "UserId not found.",
                     "statusCode": status.HTTP_404_NOT_FOUND
                 }, status=status.HTTP_404_NOT_FOUND)
@@ -171,7 +188,7 @@ class RecipeToggleFavorite(generics.RetrieveDestroyAPIView):
             serializer = self.get_serializer(favorite_food)
 
             return Response({
-                "status": "Success",
+                "status": "OK",
                 "message": "Favorite berhasil diperbarui",
                 "data": serializer.data,
                 "statusCode": status.HTTP_200_OK
@@ -179,7 +196,7 @@ class RecipeToggleFavorite(generics.RetrieveDestroyAPIView):
         
         except Exception as e :
             return Response({
-                "status": "error",
+                "status": "ERROR",
                 "message": "An error occurred while creating the product",
                 "errors": str(e),
                 "statusCode": status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -206,7 +223,7 @@ class CategoryListCreate(generics.ListCreateAPIView) :
             payload = {
                 'total_data': self.queryset.count(),
                 'statusCode': status.HTTP_200_OK,
-                'status': 'Success',
+                'status': 'OK',
                 'message': 'Success',
                 'data': data
             }
@@ -214,7 +231,7 @@ class CategoryListCreate(generics.ListCreateAPIView) :
             return Response(payload)
         except Exception as e :
             return Response({
-                "status": "error",
+                "status": "ERROR",
                 "message": "An error occurred while creating the product",
                 "errors": str(e),
                 "statusCode": status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -227,21 +244,21 @@ class CategoryListCreate(generics.ListCreateAPIView) :
                 serializer.save()
 
                 return Response({
-                    "status": "success",
+                    "status": "OK",
                     "message": "Kategori Makanan Berhasil disimpan",
                     "statusCode": status.HTTP_201_CREATED
                 }, status=status.HTTP_201_CREATED)
             
             else :
                 return Response({
-                    "status": "failed",
+                    "status": "ERROR",
                     "message": "Data Kategori Makanan tidak berhasil disimpan",
                     "statusCode": status.HTTP_400_BAD_REQUEST
                 }, status=status.HTTP_400_BAD_REQUEST)
             
         except Exception as e:
             return Response({
-                "status": "error",
+                "status": "ERROR",
                 "message": "An error occurred while creating the product",
                 "errors": str(e),
                 "statusCode": status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -276,7 +293,7 @@ class LevelListCreate(generics.ListCreateAPIView) :
             return Response(payload, status=status.HTTP_200_OK)
         except Exception as e :
             return Response({
-                "status": "error",
+                "status": "ERROR",
                 "message": "An error occurred while creating the product",
                 "errors": str(e),
                 "statusCode": status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -289,20 +306,20 @@ class LevelListCreate(generics.ListCreateAPIView) :
                 serializer.save()
 
                 return Response({
-                    "status": "success",
+                    "status": "OK",
                     "message": "Level Makanan Berhasil disimpan",
                     "statusCode": status.HTTP_201_CREATED
                 }, status=status.HTTP_201_CREATED)
             
             else :
                 return Response({
-                    "status": "failed",
+                    "status": "ERROR",
                     "message": "Data Level Makanan tidak berhasil disimpan",
                     "statusCode": status.HTTP_400_BAD_REQUEST
                 }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({
-                "status": "error",
+                "status": "ERROR",
                 "message": "An error occurred while creating the product",
                 "errors": str(e),
                 "statusCode": status.HTTP_500_INTERNAL_SERVER_ERROR

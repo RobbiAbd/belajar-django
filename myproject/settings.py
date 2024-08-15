@@ -32,6 +32,11 @@ DEBUG = os.environ.get('DEBUG')
 ALLOWED_HOSTS = []
 
 # Application definition
+CORS_ORIGIN_ALLOW_ALL = True
+# CORS_ORIGIN_WHITELIST = (
+#   'http://localhost:5000',
+# )
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -77,6 +82,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',    
     'recipes.apps.RecipesConfig',    
     'rest_framework',
+    'corsheaders',
 ]
 
 MIDDLEWARE = [
@@ -87,6 +93,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
 ]
 
 ROOT_URLCONF = 'myproject.urls'

@@ -17,7 +17,7 @@ class CustomPagination(PageNumberPagination):
                 'previous': self.get_previous_link()
             },
             'total': self.page.paginator.count,
-            'page': int(self.request.GET.get('page', DEFAULT_PAGE)), # can not set default = self.page
-            'page_size': int(self.request.GET.get('page_size', self.page_size)),
+            'page': int(self.request.GET.get('pageNumber', DEFAULT_PAGE)), # can not set default = self.page
+            'page_size': int(self.request.GET.get('pageSize', self.page_size)),
             'results': data
         })

@@ -4,7 +4,6 @@ from rest_framework.views import APIView
 import logging
 from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import check_password
 from .models import User
 
@@ -12,18 +11,31 @@ logger = logging.getLogger(__name__)
 
 class RegisterView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request):
         try:
             username = request.data.get('username')
+            fullname = request.data.get('fullname')
             password = request.data.get('password')
+            retype_password = request.data.get('retypePassword')
 
-            if not username or not password:
+            if not username or not password or not fullname or not retype_password:
                 logger.info(f"Input is not valid")
                 response_data = {
                     "statusCode": status.HTTP_400_BAD_REQUEST,
-                    "status": "Failed",
+                    "status": "ERROR",
                     "message": "Input is not valid",
+                }
+
+                return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
+            
+            if password != retype_password:
+                logger.info(f"Password and Retype Password tidak sama")
+                response_data = {
+                    "statusCode": status.HTTP_400_BAD_REQUEST,
+                    "status": "ERROR",
+                    "message": "Password and Retype Password tidak sama",
                 }
 
                 return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
@@ -32,18 +44,18 @@ class RegisterView(APIView):
                 logger.info(f"Username already exist")
                 response_data = {
                     "statusCode": status.HTTP_400_BAD_REQUEST,
-                    "status": "Failed",
+                    "status": "ERROR",
                     "message": "Username already exist",
                 }
 
                 return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
 
-            user = User(username=username, password=password)
+            user = User(username=username, password=password, fullname=fullname, is_deleted=False)
             user.save()
 
             response_data = {
                 "statusCode": status.HTTP_201_CREATED,
-                "status": "Success",
+                "status": "OK",
                 "message": f"Register Success",
             }
 
@@ -53,7 +65,7 @@ class RegisterView(APIView):
         except Exception as e:
             logger.error(f"An error occurred during registration: {str(e)}")
             return Response({
-                "status": "error",
+                "status": "ERROR",
                 "message": "An error occurred while creating the product",
                 "errors": str(e),
                 "statusCode": status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -61,6 +73,7 @@ class RegisterView(APIView):
         
 class LoginView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request):
         try:
@@ -81,7 +94,7 @@ class LoginView(APIView):
                     },
                     "message": 'Success login',
                     "statusCode": status.HTTP_200_OK,
-                    "status": 'Success',
+                    "status": 'OK',
                 }
 
                 logger.info(f"Successful login for user: {user.username}")
@@ -92,7 +105,7 @@ class LoginView(APIView):
                 response_data = {
                     "message": f"Failed login attempt for username: {username}",
                     "statusCode": status.HTTP_401_UNAUTHORIZED,
-                    "status": "Failed",
+                    "status": "ERROR",
                 }
 
                 return Response(response_data, status=status.HTTP_401_UNAUTHORIZED)
@@ -101,7 +114,7 @@ class LoginView(APIView):
             logger.error(f"An error occurred during login: {str(e)}")
 
             return Response({
-                "status": "error",
+                "status": "ERROR",
                 "message": "An error occurred while creating the product",
                 "errors": str(e),
                 "statusCode": status.HTTP_500_INTERNAL_SERVER_ERROR
