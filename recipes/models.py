@@ -86,14 +86,6 @@ class Recipes(models.Model):
     def __str__(self) -> str:
         return self.recipe_name
     
-class RecipeHowToCook(models.Model):
-    how_to_cook = models.ForeignKey(HowToCook, on_delete=models.CASCADE)
-    recipe = models.ForeignKey(Recipes, on_delete=models.CASCADE)
-
-class RecipeIngredient(models.Model):
-    ingridient = models.ForeignKey(Ingredient, on_delete=models.CASCADE)
-    recipe = models.ForeignKey(Recipes, on_delete=models.CASCADE)
-
 class FavoriteFoods(models.Model):
     user = models.ForeignKey(User, on_delete=models.RESTRICT, null=True, blank=True)
     recipe = models.ForeignKey(Recipes, on_delete=models.RESTRICT, null=True, blank=True)
@@ -102,3 +94,11 @@ class FavoriteFoods(models.Model):
     created_time = models.DateTimeField(null=True, blank=True)
     modified_by = models.CharField(max_length=255, null=True, blank=True)
     modified_time = models.DateTimeField(null=True, blank=True)
+    
+class RecipeHowToCook(models.Model):
+    how_to_cook = models.ForeignKey(HowToCook, on_delete=models.CASCADE)
+    recipe = models.ForeignKey(Recipes, on_delete=models.CASCADE)
+
+class RecipeIngredient(models.Model):
+    ingridient = models.ForeignKey(Ingredient, on_delete=models.CASCADE)
+    recipe = models.ForeignKey(Recipes, on_delete=models.CASCADE)

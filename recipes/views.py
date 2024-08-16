@@ -8,12 +8,273 @@ import logging, os
 from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
-import time
+from django.conf import settings
+import time, json
+from django.core.files.uploadedfile import InMemoryUploadedFile
 
 logger = logging.getLogger(__name__)
 
 # Create your views here.        
 class RecipeListCreate(generics.ListCreateAPIView) :
+    permission_classes = [IsAuthenticated]
+    serializer_class = RecipeSerializer
+    pagination_class = CustomPagination
+
+    def get_queryset(self):
+        user_id = self.request.query_params.get('userId', None)
+        category_id = self.request.query_params.get('categoryId', None)
+        recipe_name = self.request.query_params.get('recipeName', None)
+        level_id = self.request.query_params.get('levelId', None)
+        sort_by = self.request.query_params.get('sortBy', None)
+        time_range = self.request.query_params.get('time', None)
+
+        queryset = Recipes.objects.filter(is_deleted=False)
+
+        ordering_mapping = {
+            'recipeName': 'recipe_name',
+            'timeCook': 'time_cook',
+        }
+
+        if recipe_name :
+            queryset = queryset.filter(recipe_name__icontains=recipe_name)
+
+        # if user_id:
+        #     queryset = queryset.filter(user_id=user_id)
+
+        if category_id:
+            queryset = queryset.filter(category_id=category_id)
+
+        if level_id:
+            queryset = queryset.filter(level_id=level_id)
+
+        if sort_by:
+            sort_field, sort_order = sort_by.split(',')
+            sort_field = ordering_mapping.get(sort_field, sort_field)
+
+            if sort_order == 'desc':
+                sort_field = f'-{sort_field}'
+                queryset = queryset.order_by(sort_field)
+            else:
+                queryset = queryset.order_by('recipe_name')
+
+        if time_range:
+            try:
+                if '-' in time_range:
+                    time_min, time_max = map(int, time_range.split('-'))
+                    queryset = queryset.filter(time__gte=time_min, time__lte=time_max)
+                else:
+                    time_value = int(time_range)
+                    if time_value == 60:
+                        queryset = queryset.filter(time__gte=60)
+                    else:
+                        queryset = queryset.filter(time=time_value)
+            except ValueError:
+                raise ValueError("time range invalid")
+        
+        return queryset
+
+    def get(self, request):
+        try :                        
+            queryset = self.get_queryset()
+            page = self.paginate_queryset(queryset)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                result = self.get_paginated_response(serializer.data)
+                data = result.data
+            else:
+                serializer = self.get_serializer(queryset, many=True)
+                data = serializer.data
+
+            payload = data
+
+            logger.info(f"Success get list")
+            return Response(payload, status=status.HTTP_200_OK)
+        except Exception as e :
+            logger.info(f"An error occurred while creating the product: ${str(e)}")
+            return Response({
+                "status": "ERROR",
+                "message": "An error occurred while creating the product",
+                "errors": str(e),
+                "statusCode": status.HTTP_500_INTERNAL_SERVER_ERROR
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def create(self, request, *args, **kwargs):
+        try:
+            user_id = request.user.id
+            user = User.objects.get(id=user_id)
+
+            json_blob = request.FILES.get('request')
+            if json_blob:
+                json_data = json.load(json_blob)
+            else:
+                json_data = request.data
+
+            recipe_name = json_data.get('recipeName')
+            category_data = json_data.get('categories', {})
+            level_data = json_data.get('levels', {})
+            category_name = category_data.get('categoryName')
+            level_name = level_data.get('levelName')
+
+            mapped_data = {
+                'recipe_name': recipe_name,
+                'time_cook': json_data.get('timeCook'),
+                'time': json_data.get('timeCook'),
+                'ingredient': json_data.get('ingredient'),
+                'how_to_cook': json_data.get('howToCook'),
+                'category_id': category_data.get('categoryId'),
+                'level_id': level_data.get('levelId'),
+            }        
+
+            document = request.FILES.get('file', None)
+            if document:
+                try:
+                    validate_image_file(document)
+                except ValidationError as e:
+                    return Response({
+                        "status": "ERROR",
+                        "message": str(e),
+                        "statusCode": status.HTTP_400_BAD_REQUEST
+                    }, status=status.HTTP_400_BAD_REQUEST)
+        
+                _, file_extension = os.path.splitext(document.name)
+                    
+                file_name = f"{recipe_name}_{category_name}_{level_name}_{int(time.time())}{file_extension}"
+                mapped_data['image_filename'] = file_name
+                scheme = request.scheme 
+                domain = request.get_host() 
+                mapped_data['image_url'] = f"{scheme}://{domain}/media/{mapped_data['image_filename']}"
+                handle_upload_files(document, file_name)
+
+                recipe = Recipes(user=user,recipe_name=mapped_data['recipe_name'], time_cook=mapped_data['time_cook'], time=mapped_data['time'], ingredient=mapped_data['ingredient'], how_to_cook=mapped_data['how_to_cook'], category_id=mapped_data['category_id'], level_id=mapped_data['level_id'], image_filename=mapped_data['image_filename'], image_url=mapped_data['image_url'], is_deleted=False)
+                recipe.save()        
+
+                return Response({
+                    "status": "OK",
+                    "message": "Resep Makanan Berhasil disimpan",
+                    "statusCode": status.HTTP_201_CREATED
+                }, status=status.HTTP_201_CREATED)
+            else :
+
+                return Response({
+                    "status": "ERROR",
+                    "message": "File upload not found",
+                    "statusCode": status.HTTP_400_BAD_REQUEST
+                }, status=status.HTTP_400_BAD_REQUEST)        
+        except Exception as e:            
+            return Response({
+                "status": "ERROR",
+                "message": "An error occurred while creating the product",
+                "errors": str(e),
+                "statusCode": status.HTTP_500_INTERNAL_SERVER_ERROR
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+class DetailRecipeListCreate(generics.ListCreateAPIView) :
+    permission_classes = [IsAuthenticated]
+    serializer_class = RecipeSerializer
+
+    def get(self, request, *args, **kwargs):
+        try :              
+            recipe_id = int(kwargs.get('recipe_id'))
+            queryset = Recipes.objects.filter(recipe_id=recipe_id)
+            serializer = self.get_serializer(queryset, many=True)
+            data = serializer.data
+            payload = data
+
+            logger.info(f"Success get list")
+            return Response(payload, status=status.HTTP_200_OK)
+        except Exception as e :
+            logger.info(f"An error occurred while creating the product: ${str(e)}")
+            return Response({
+                "status": "ERROR",
+                "message": "An error occurred while creating the product",
+                "errors": str(e),
+                "statusCode": status.HTTP_500_INTERNAL_SERVER_ERROR
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class FavoriteListCreate(generics.ListCreateAPIView) :
+    permission_classes = [IsAuthenticated]
+    serializer_class = RecipeSerializer
+    pagination_class = CustomPagination
+
+    def get_queryset(self):
+        user_id = self.request.query_params.get('userId', None)
+        category_id = self.request.query_params.get('categoryId', None)
+        recipe_name = self.request.query_params.get('recipeName', None)
+        level_id = self.request.query_params.get('levelId', None)
+        sort_by = self.request.query_params.get('sortBy', None)
+        time_range = self.request.query_params.get('time', None)
+
+        queryset = Recipes.objects.filter(is_deleted=False, is_favorite=True)
+
+        ordering_mapping = {
+            'recipeName': 'recipe_name',
+            'timeCook': 'time_cook',
+        }
+
+        if recipe_name :
+            queryset = queryset.filter(recipe_name__icontains=recipe_name)
+
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+
+        if category_id:
+            queryset = queryset.filter(category_id=category_id)
+
+        if level_id:
+            queryset = queryset.filter(level_id=level_id)
+
+        if sort_by:
+            sort_field, sort_order = sort_by.split(',')
+            sort_field = ordering_mapping.get(sort_field, sort_field)
+
+            if sort_order == 'desc':
+                sort_field = f'-{sort_field}'
+                queryset = queryset.order_by(sort_field)
+            else:
+                queryset = queryset.order_by('recipe_name')
+
+        if time_range:
+            try:
+                if '-' in time_range:
+                    time_min, time_max = map(int, time_range.split('-'))
+                    queryset = queryset.filter(time__gte=time_min, time__lte=time_max)
+                else:
+                    time_value = int(time_range)
+                    if time_value == 60:
+                        queryset = queryset.filter(time__gte=60)
+                    else:
+                        queryset = queryset.filter(time=time_value)
+            except ValueError:
+                raise ValueError("time range invalid")
+        
+        return queryset
+
+    def get(self, request):
+        try :                        
+            queryset = self.get_queryset()
+            page = self.paginate_queryset(queryset)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                result = self.get_paginated_response(serializer.data)
+                data = result.data
+            else:
+                serializer = self.get_serializer(queryset, many=True)
+                data = serializer.data
+
+            payload = data
+
+            logger.info(f"Success get list")
+            return Response(payload, status=status.HTTP_200_OK)
+        except Exception as e :
+            logger.info(f"An error occurred while creating the product: ${str(e)}")
+            return Response({
+                "status": "ERROR",
+                "message": "An error occurred while creating the product",
+                "errors": str(e),
+                "statusCode": status.HTTP_500_INTERNAL_SERVER_ERROR
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+class MyRecipesListCreate(generics.ListCreateAPIView) :
     permission_classes = [IsAuthenticated]
     serializer_class = RecipeSerializer
     pagination_class = CustomPagination
@@ -83,56 +344,12 @@ class RecipeListCreate(generics.ListCreateAPIView) :
                 serializer = self.get_serializer(queryset, many=True)
                 data = serializer.data
 
-            payload = {
-                'statusCode': status.HTTP_200_OK,
-                'status': 'OK',
-                'message': 'Success',
-                'data': data
-            }
+            payload = data
 
             logger.info(f"Success get list")
             return Response(payload, status=status.HTTP_200_OK)
         except Exception as e :
             logger.info(f"An error occurred while creating the product: ${str(e)}")
-            return Response({
-                "status": "ERROR",
-                "message": "An error occurred while creating the product",
-                "errors": str(e),
-                "statusCode": status.HTTP_500_INTERNAL_SERVER_ERROR
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-    def create(self, request, *args, **kwargs):
-        try:
-            user_id = request.user.id
-            user = User.objects.get(id=user_id)
-            document = request.FILES.get('files', None)
-
-            file_name = f"{request.data.get('recipe_name')}_{request.data.get('category')}_{request.data.get('level')}_{int(time.time())}"
-            if document:
-                _, file_extension = os.path.splitext(document.name)
-                request.data['image_filename'] = f"{file_name}.{file_extension}"
-
-            serializer = self.get_serializer(data=request.data)
-            if serializer.is_valid():
-                if document:
-                    handle_upload_files(document, file_name)
-
-                serializer.save(user=user)
-
-                return Response({
-                    "status": "OK",
-                    "message": "Resep Makanan Berhasil disimpan",
-                    "statusCode": status.HTTP_201_CREATED
-                }, status=status.HTTP_201_CREATED)
-            else :
-
-                return Response({
-                    "status": "ERROR",
-                    "message": "Data Resep Makanan tidak berhasil disimpan",
-                    "statusCode": status.HTTP_400_BAD_REQUEST
-                }, status=status.HTTP_400_BAD_REQUEST)        
-        except Exception as e:            
-
             return Response({
                 "status": "ERROR",
                 "message": "An error occurred while creating the product",
@@ -206,19 +423,12 @@ class CategoryListCreate(generics.ListCreateAPIView) :
     permission_classes = [IsAuthenticated]
     queryset = Category.objects.all()
     serializer_class = CategoriesSerializer
-    pagination_class = CustomPagination
 
     def get(self, request):
         try :
-            queryset = self.filter_queryset(self.get_queryset())
-            page = self.paginate_queryset(queryset)
-            if page is not None:
-                serializer = self.get_serializer(page, many=True)
-                result = self.get_paginated_response(serializer.data)
-                data = result.data
-            else:
-                serializer = self.get_serializer(queryset, many=True)
-                data = serializer.data
+            queryset = self.filter_queryset(self.get_queryset())            
+            serializer = self.get_serializer(queryset, many=True)
+            data = serializer.data
 
             payload = {
                 'total_data': self.queryset.count(),
@@ -268,19 +478,12 @@ class LevelListCreate(generics.ListCreateAPIView) :
     permission_classes = [IsAuthenticated]
     queryset = Level.objects.all()
     serializer_class = LevelSerializer
-    pagination_class = CustomPagination
 
     def get(self, request):
         try :
-            queryset = self.filter_queryset(self.get_queryset())
-            page = self.paginate_queryset(queryset)
-            if page is not None:
-                serializer = self.get_serializer(page, many=True)
-                result = self.get_paginated_response(serializer.data)
-                data = result.data
-            else:
-                serializer = self.get_serializer(queryset, many=True)
-                data = serializer.data
+            queryset = self.filter_queryset(self.get_queryset())            
+            serializer = self.get_serializer(queryset, many=True)
+            data = serializer.data
 
             payload = {
                 'total_data': self.queryset.count(),
@@ -325,14 +528,34 @@ class LevelListCreate(generics.ListCreateAPIView) :
                 "statusCode": status.HTTP_500_INTERNAL_SERVER_ERROR
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
-def handle_upload_files(file, file_name):
-    if file:
-        base_name, ext = os.path.splitext(file_name)
-        if not ext:
-            ext = '.jpg' 
+ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png']
+ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png']
 
-        file_name = f"{base_name}{ext}"
-        file_path = os.path.join('uploads', file_name)
-        file_url = default_storage.save(file_path, ContentFile(file.read()))
-        return file_url
-    return None
+def validate_image_file(file):
+    if not isinstance(file, InMemoryUploadedFile):
+        raise ValidationError("Uploaded file is not a valid image file.")
+    
+    # Check file extension
+    _, file_extension = os.path.splitext(file.name)
+    if file_extension.lower() not in ALLOWED_IMAGE_EXTENSIONS:
+        raise ValidationError("Unsupported file extension. Allowed extensions are: .jpg, .jpeg, .png")
+
+    # Check MIME type
+    if file.content_type not in ALLOWED_IMAGE_MIME_TYPES:
+        raise ValidationError("Unsupported file type. Allowed types are: image/jpeg, image/png")
+        
+def handle_upload_files(file, file_name):
+    # Determine the directory path
+    directory_path = settings.MEDIA_ROOT
+    
+    # Ensure the directory exists
+    if not os.path.exists(directory_path):
+        os.makedirs(directory_path)
+    
+    # Full file path
+    file_path = os.path.join(directory_path, file_name)
+    
+    # Write the file
+    with open(file_path, 'wb+') as destination:
+        for chunk in file.chunks():
+            destination.write(chunk)
