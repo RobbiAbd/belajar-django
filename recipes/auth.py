@@ -79,7 +79,17 @@ class LoginView(APIView):
         try:
             username = request.data.get("username")
             password = request.data.get("password")
-            user = User.objects.get(username=username, is_deleted=False)
+
+            try :
+                user = User.objects.get(username=username, is_deleted=False)
+            except User.DoesNotExist :
+                logger.warning(f"Username not registered: {username}")
+                response_data = {
+                    "message": f"Username not registered: {username}",
+                    "statusCode": status.HTTP_401_UNAUTHORIZED,
+                    "status": "ERROR",
+                }
+                return Response(response_data, status=status.HTTP_401_UNAUTHORIZED)
 
             if user.check_password(password) :
                 refresh = RefreshToken.for_user(user)
