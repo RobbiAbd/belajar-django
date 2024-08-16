@@ -4,9 +4,7 @@ from rest_framework.views import APIView
 import logging
 from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.contrib.auth.hashers import check_password
 from .models import User
-from django.contrib.auth.models import User as AuthUser
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +50,8 @@ class RegisterView(APIView):
                 return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
 
             user = User(username=username, password=password, fullname=fullname, is_deleted=False)
+            user.set_password(password)
             user.save()
-
-            email = f"{username}@gmail.com"
-            auth_user = AuthUser(username=username, password=password, email=email, is_active=True, is_staff=True)
-            auth_user.save()
 
             response_data = {
                 "statusCode": status.HTTP_201_CREATED,
@@ -86,7 +81,7 @@ class LoginView(APIView):
             password = request.data.get("password")
             user = User.objects.get(username=username, is_deleted=False)
 
-            if user and check_password(password, user.password) :
+            if user.check_password(password) :
                 refresh = RefreshToken.for_user(user)
                 access_token = str(refresh.access_token)
 
