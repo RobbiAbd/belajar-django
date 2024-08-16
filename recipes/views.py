@@ -38,8 +38,8 @@ class RecipeListCreate(generics.ListCreateAPIView) :
         if recipe_name :
             queryset = queryset.filter(recipe_name__icontains=recipe_name)
 
-        # if user_id:
-        #     queryset = queryset.filter(user_id=user_id)
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
 
         if category_id:
             queryset = queryset.filter(category_id=category_id)
@@ -178,7 +178,12 @@ class DetailRecipeListCreate(generics.ListCreateAPIView) :
             queryset = Recipes.objects.filter(recipe_id=recipe_id)
             serializer = self.get_serializer(queryset, many=True)
             data = serializer.data
-            payload = data
+            payload = {
+                'status': 'OK',
+                'statusCode': status.HTTP_200_OK,
+                'message': 'success',
+                'data': data[0]
+            }
 
             logger.info(f"Success get list")
             return Response(payload, status=status.HTTP_200_OK)

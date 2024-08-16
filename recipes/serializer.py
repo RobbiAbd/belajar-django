@@ -39,8 +39,19 @@ class RecipeSerializer(serializers.ModelSerializer) :
         fields = '__all__'
 
 class FavoriteFoodsSerializer(serializers.ModelSerializer) :
-    recipe = RecipeSerializer(read_only=True)
-    
-    class Meta :
+    recipeId = serializers.IntegerField(source='recipe.recipe_id')
+    recipeName = serializers.CharField(source='recipe.recipe_name')
+    imageUrl = serializers.CharField(source='recipe.image_url')
+    imageFilename = serializers.CharField(source='recipe.image_filename')
+    timeCook = serializers.CharField(source='recipe.time_cook')
+
+    categories = CategoriesSerializer(source='recipe.category', read_only=True)
+    levels = LevelSerializer(source='recipe.level', read_only=True)
+
+    isFavorite = serializers.BooleanField(source='is_favorite')
+
+    class Meta:
         model = FavoriteFoods
-        fields = '__all__'
+        fields = [
+            'recipeId', 'recipeName', 'imageUrl', 'imageFilename', 'timeCook', 'isFavorite', 'categories', 'levels'
+        ]
