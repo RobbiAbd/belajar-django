@@ -20,6 +20,9 @@ class RecipeListCreate(generics.ListCreateAPIView) :
     serializer_class = RecipeSerializer
     pagination_class = CustomPagination
 
+    def get_serializer_context(self):
+        return {'request': self.request}
+
     def get_queryset(self):
         user_id = self.request.query_params.get('userId', None)
         category_id = self.request.query_params.get('categoryId', None)
@@ -38,8 +41,8 @@ class RecipeListCreate(generics.ListCreateAPIView) :
         if recipe_name :
             queryset = queryset.filter(recipe_name__icontains=recipe_name)
 
-        if user_id:
-            queryset = queryset.filter(user_id=user_id)
+        # if user_id:
+        #     queryset = queryset.filter(user_id=user_id)
 
         if category_id:
             queryset = queryset.filter(category_id=category_id)
@@ -139,14 +142,17 @@ class RecipeListCreate(generics.ListCreateAPIView) :
                 _, file_extension = os.path.splitext(document.name)
                     
                 file_name = f"{recipe_name}_{category_name}_{level_name}_{int(time.time())}{file_extension}"
-                mapped_data['image_filename'] = file_name
                 scheme = request.scheme 
                 domain = request.get_host() 
-                mapped_data['image_url'] = f"{scheme}://{domain}/media/{mapped_data['image_filename']}"
+                mapped_data['image_url'] = f"{scheme}://{domain}/media/{file_name}"
+                mapped_data['image_filename'] = mapped_data['image_url']
                 handle_upload_files(document, file_name)
 
                 recipe = Recipes(user=user,recipe_name=mapped_data['recipe_name'], time_cook=mapped_data['time_cook'], time=mapped_data['time'], ingredient=mapped_data['ingredient'], how_to_cook=mapped_data['how_to_cook'], category_id=mapped_data['category_id'], level_id=mapped_data['level_id'], image_filename=mapped_data['image_filename'], image_url=mapped_data['image_url'], is_deleted=False)
                 recipe.save()        
+
+                favorite_food = FavoriteFoods(is_favorite=False, recipe=recipe, user=user)
+                favorite_food.save()
 
                 return Response({
                     "status": "OK",
@@ -209,7 +215,8 @@ class FavoriteListCreate(generics.ListCreateAPIView) :
         sort_by = self.request.query_params.get('sortBy', None)
         time_range = self.request.query_params.get('time', None)
 
-        queryset = Recipes.objects.filter(is_deleted=False, is_favorite=True)
+        favorite_recipes = FavoriteFoods.objects.filter(user_id=user_id, is_favorite=True).values_list('recipe', flat=True)
+        queryset = Recipes.objects.filter(recipe_id__in=favorite_recipes, is_deleted=False)
 
         ordering_mapping = {
             'recipeName': 'recipe_name',
@@ -219,8 +226,8 @@ class FavoriteListCreate(generics.ListCreateAPIView) :
         if recipe_name :
             queryset = queryset.filter(recipe_name__icontains=recipe_name)
 
-        if user_id:
-            queryset = queryset.filter(user_id=user_id)
+        # if user_id:
+        #     queryset = queryset.filter(user_id=user_id)
 
         if category_id:
             queryset = queryset.filter(category_id=category_id)
@@ -392,20 +399,15 @@ class RecipeToggleFavorite(generics.RetrieveDestroyAPIView):
                     "status": "ERROR",
                     "message": "UserId not found.",
                     "statusCode": status.HTTP_404_NOT_FOUND
-                }, status=status.HTTP_404_NOT_FOUND)
-            
-            recipe.is_favorite = not recipe.is_favorite
-            recipe.save()
+                }, status=status.HTTP_404_NOT_FOUND)            
 
             favorite_food, created = FavoriteFoods.objects.get_or_create(
                 recipe=recipe,
-                user=user,
-                defaults={'is_favorite': False}
+                user=user
             )
 
-            if not created :
-                favorite_food.is_favorite = not recipe.is_favorite
-                favorite_food.save()
+            favorite_food.is_favorite = not favorite_food.is_favorite
+            favorite_food.save()
 
             serializer = self.get_serializer(favorite_food)
 
